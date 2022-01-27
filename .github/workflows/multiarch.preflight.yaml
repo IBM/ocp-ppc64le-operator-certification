@@ -1,4 +1,4 @@
-name: Multiarch build
+name: Multiarch preflight build
 on:
   push:
   
