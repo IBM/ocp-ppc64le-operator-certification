@@ -9,7 +9,7 @@ ARG release_tag
 ARG ARCH
 
 # Build the preflight binary
-COPY . /go/src/preflight
+COPY ./openshift-preflight/ /go/src/preflight
 WORKDIR /go/src/preflight
 RUN make build RELEASE_TAG=${release_tag}
 
