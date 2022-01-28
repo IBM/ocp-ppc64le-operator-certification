@@ -28,7 +28,7 @@ jobs:
           tags: linux-amd64
           arch: amd64
           containerfiles: |
-            ./Dockerfile.preflight.amd64
+            ./openshift-preflight/Dockerfile
      
       - name: Build image linux/ppc64le
         uses: redhat-actions/buildah-build@v2
@@ -37,7 +37,7 @@ jobs:
           tags: linux-ppc64le
           arch: ppc64le
           containerfiles: |
-            ./Dockerfile.preflight.ppc64le
+            ./openshift-preflight/Dockerfile.ppc64le
                
       - name: Check images created
         run: buildah images | grep '${{ env.IMAGE_NAME }}'
