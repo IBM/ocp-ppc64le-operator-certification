@@ -23,7 +23,7 @@ WORKDIR /opt/app-root/src
 COPY . .
 RUN \
     pip install -r ./operator-manifest/requirements.txt  --no-cache-dir --no-deps --require-hashes && \
-    pip install . --no-deps --no-cache-dir
+    pip install ./operator-manifest/ --no-deps --no-cache-dir
 
 WORKDIR /opt/app-root/workdir
 CMD ["operator-manifest", "--help"]
