@@ -11,7 +11,7 @@ ARG ARCH
 # Build the preflight binary
 COPY ./openshift-preflight/ /go/src/preflight
 WORKDIR /go/src/preflight
-RUN make build RELEASE_TAG=${release_tag}
+RUN ./openshift-preflight/make build RELEASE_TAG=${release_tag}
 
 # ubi8:latest
 FROM registry.access.redhat.com/ubi8/ubi:latest
