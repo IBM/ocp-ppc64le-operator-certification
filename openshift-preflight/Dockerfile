@@ -9,9 +9,9 @@ ARG release_tag
 ARG ARCH
 
 # Build the preflight binary
-COPY ./openshift-preflight/ /go/src/preflight
-WORKDIR /go/src/preflight
-RUN make ./openshift-preflight/build RELEASE_TAG=${release_tag}
+COPY ./openshift-preflight/ ./openshift-preflight/go/src/preflight
+WORKDIR ./openshift-preflight/go/src/preflight
+RUN make build RELEASE_TAG=${release_tag}
 
 # ubi8:latest
 FROM registry.access.redhat.com/ubi8/ubi:latest
@@ -28,7 +28,7 @@ ARG OPENSHIFT_CLIENT_VERSION=4.7.19
 ARG OPERATOR_SDK_VERSION=1.14.0
 
 # Add preflight binary
-COPY --from=builder /go/src/preflight/preflight /usr/local/bin/preflight
+COPY --from=builder ./openshift-preflight/go/src/preflight/preflight /usr/local/bin/preflight
 
 # Install dependencies
 RUN dnf install -y \
