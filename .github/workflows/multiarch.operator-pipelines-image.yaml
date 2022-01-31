@@ -1,6 +1,13 @@
 name: Multiarch Operator Pipelines image build
 on:
   push:
+    branches:
+      - master
+    paths-ignore:
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - '**.md'
   
 env:
   IMAGE_TAG: multi-arch
