@@ -1,0 +1,45 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: query-publishing-checklist
+spec:
+  params:
+    - name: pipeline_image
+    - name: cert_project_id
+      description: ID of the bundle Certification Project
+    - name: connect_url
+      description: URL to Red Hat Connect
+    - name: hydra_secret_name
+      description: Kubernetes secret name that contains the Hydra credentials
+    - name: hydra_secret_username_key
+      description: The key within the Kubernetes secret that contains the Hydra username
+    - name: hydra_secret_password_key
+      description: The key within the Kubernetes secret that contains the Hydra password
+    - name: ignore_publishing_checklist
+      default: "false"
+      description: Ignore the results of the publishing checklist
+  steps:
+    - name: query-publishing-checklist
+      image: "$(params.pipeline_image)"
+      env:
+        - name: HYDRA_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: $(params.hydra_secret_name)
+              key: $(params.hydra_secret_username_key)
+        - name: HYDRA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: $(params.hydra_secret_name)
+              key: $(params.hydra_secret_password_key)
+      script: |
+        #! /usr/bin/env bash
+        set -ex
+
+        HYDRA_URL=$(params.connect_url)/hydra/prm
+
+        hydra-checklist \
+          --cert-project-id "$(params.cert_project_id)" \
+          --hydra-url $HYDRA_URL \
+          --ignore-publishing-checklist "$(params.ignore_publishing_checklist)"

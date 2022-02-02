@@ -1,0 +1,81 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: get-ci-results
+spec:
+  params:
+    - name: pipeline_image
+    - name: pyxis_ssl_secret_name
+      description: Kubernetes secret name that contains the Pyxis SSL files. Valid only when internal Pyxis is used.
+    - name: pyxis_ssl_cert_secret_key
+      description: The key within the Kubernetes secret that contains the Pyxis SSL cert. Valid only when internal Pyxis is used.
+    - name: pyxis_ssl_key_secret_key
+      description: The key within the Kubernetes secret that contains the Pyxis SSL key. Valid only when internal Pyxis is used.
+    - name: md5sum
+    - name: pyxis_url
+    - name: cert_project_id
+    - name: bundle_version
+    - name: operator_name
+    # results from get-ci-results-attempt.
+    # They are kept if they have value, or
+    # they are replaced.
+    - name: preflight_results_exists
+    - name: preflight_results
+    - name: test_result_id
+  results:
+    - name: test_result_id
+    - name: preflight_results
+      description: |
+        Relative file path, from the root of the results workspace,
+        where the JSON formatted results are stored.
+  workspaces:
+    - name: results
+  volumes:
+    - name: pyxis-ssl-volume
+      secret:
+        secretName: "$(params.pyxis_ssl_secret_name)"
+        optional: true
+  steps:
+    - name: get-results
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.results.path)
+      env:
+        - name: PYXIS_CERT_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_cert_secret_key)
+        - name: PYXIS_KEY_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_key_secret_key)
+      volumeMounts:
+        - name: pyxis-ssl-volume
+          readOnly: true
+          mountPath: "/etc/pyxis-ssl-volume"
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+
+        PREFLIGHT_RESULTS_EXISTS="$(params.preflight_results_exists)"
+        if [ "$PREFLIGHT_RESULTS_EXISTS" == "true" ]; then
+          echo "Preflight results already exists- skipping"
+
+          echo "$(params.test_result_id)" | tee $(results.test_result_id.path)
+
+          echo "$(params.preflight_results)" | tee $(results.preflight_results.path)
+
+          exit 0
+        fi
+
+        # Send request to Pyxis to get the test results.
+        # If they exists, store them in the workspace
+
+        echo "Downloading the test results"
+
+        download-test-results \
+          --pyxis-url "$(params.pyxis_url)" \
+          --cert-project-id "$(params.cert_project_id)" \
+          --certification-hash "$(params.md5sum)" \
+          --operator-package-version "$(params.bundle_version)" \
+          --operator-name "$(params.operator_name)" \
+          --verbose
+
+        cat test_result_id | tee $(results.test_result_id.path)
+        echo -n "test_results.json" > $(results.preflight_results.path)

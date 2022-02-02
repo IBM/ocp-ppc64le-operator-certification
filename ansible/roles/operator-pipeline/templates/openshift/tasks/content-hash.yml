@@ -1,0 +1,30 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: content-hash
+spec:
+  params:
+    - name: pipeline_image
+    - name: bundle_path
+  results:
+    - name: md5sum
+  workspaces:
+    - name: source
+  steps:
+    - name: compute-md5sum
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+        echo "Compute md5hash of bundle content..."
+
+        find $(params.bundle_path) -not -name "Dockerfile" -type f | \
+          tr '\n' '\0' | \
+          xargs -r0 -I {} md5sum "{}" | \
+          sort >> hashes.txt
+
+        cat hashes.txt
+
+        md5sum hashes.txt | awk '{ print $1 }' | tr -d $'\n' | tee $(results.md5sum.path)

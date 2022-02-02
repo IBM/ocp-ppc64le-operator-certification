@@ -1,0 +1,189 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: upload-artifacts
+spec:
+  params:
+    - name: pipeline_image
+    - name: pyxis_api_key_secret_name
+      default: default-api-secret
+      description: Kubernetes secret name that contains Pyxis API key. Valid only when external Pyxis is used.
+    - name: pyxis_api_key_secret_key
+      default: pyxis_api_key
+      description: The key within the Kubernetes secret that contains Pyxis API key. Valid only when external Pyxis is used.
+    - name: pyxis_ssl_secret_name
+      default: default-api-certs
+      description: Kubernetes secret name that contains the Pyxis SSL files. Valid only when internal Pyxis is used.
+    - name: pyxis_ssl_cert_secret_key
+      default: default-ssl-cert
+      description: The key within the Kubernetes secret that contains the Pyxis SSL cert. Valid only when internal Pyxis is used.
+    - name: pyxis_ssl_key_secret_key
+      default: default-ssl-key
+      description: The key within the Kubernetes secret that contains the Pyxis SSL key. Valid only when internal Pyxis is used.
+    - name: pyxis_url
+      default: https://catalog.redhat.com/api/containers/
+    - name: connect_url
+      default: https://connect.redhat.com
+    - name: log_file
+    - name: result_file
+    - name: artifacts_dir
+    - name: preflight_results_exists
+      default: "false"
+    - name: md5sum
+    - name: cert_project_id
+    - name: bundle_version
+    - name: package_name
+  results:
+    - name: log_url
+    - name: result_url
+      description: URL to the Pyxis test results endpoint
+    - name: test_result_id
+      description: Test result identifier
+    - name: result_spa_url
+      description: URL to the Connect SPA test results page
+  workspaces:
+    - name: source
+  volumes:
+    - name: pyxis-ssl-volume
+      secret:
+        secretName: "$(params.pyxis_ssl_secret_name)"
+        optional: true
+  steps:
+    - name: upload-test-logs
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: PYXIS_CERT_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_cert_secret_key)
+        - name: PYXIS_KEY_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_key_secret_key)
+        - name: PYXIS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.pyxis_api_key_secret_name)
+              key: $(params.pyxis_api_key_secret_key)
+              optional: true
+      volumeMounts:
+        - name: pyxis-ssl-volume
+          readOnly: true
+          mountPath: "/etc/pyxis-ssl-volume"
+      script: |
+        #! /usr/bin/env bash
+        PREFLIGHT_RESULTS_EXISTS="$(params.preflight_results_exists)"
+        if [ $PREFLIGHT_RESULTS_EXISTS == "true" ]; then
+          echo "Preflight logs already exists - skipping"
+          echo "none" | tee $(results.log_url.path)
+          exit 0
+        fi
+
+        echo "Uploading test log"
+
+        upload-artifacts \
+          --cert-project-id "$(params.cert_project_id)" \
+          --operator-version "$(params.bundle_version)" \
+          --operator-package-name "$(params.package_name)" \
+          --certification-hash "$(params.md5sum)" \
+          --pyxis-url "$(params.pyxis_url)" \
+          --path "$(params.log_file)" \
+          --type preflight-logs \
+          --output preflight-logs.json \
+          --verbose
+
+        LOG_ID=$(cat preflight-logs.json | jq -r "._id")
+        LOG_URL="$(params.pyxis_url)v1/projects/certification/artifacts/id/$LOG_ID"
+
+        echo "Logs URL: "
+        echo -n $LOG_URL | tee $(results.log_url.path)
+
+    - name: upload-test-results
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: PYXIS_CERT_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_cert_secret_key)
+        - name: PYXIS_KEY_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_key_secret_key)
+        - name: PYXIS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.pyxis_api_key_secret_name)
+              key: $(params.pyxis_api_key_secret_key)
+              optional: true
+      volumeMounts:
+        - name: pyxis-ssl-volume
+          readOnly: true
+          mountPath: "/etc/pyxis-ssl-volume"
+      script: |
+        #! /usr/bin/env bash
+        PREFLIGHT_RESULTS_EXISTS="$(params.preflight_results_exists)"
+        if [ $PREFLIGHT_RESULTS_EXISTS == "true" ]; then
+          echo "Preflight results already exists - skipping"
+          echo "none" | tee $(results.result_url.path)
+          echo "none" | tee $(results.test_result_id.path)
+          exit 0
+        fi
+
+        echo "Uploading test results"
+
+        upload-artifacts \
+          --cert-project-id "$(params.cert_project_id)" \
+          --operator-version "$(params.bundle_version)" \
+          --operator-package-name "$(params.package_name)" \
+          --certification-hash "$(params.md5sum)" \
+          --pyxis-url "$(params.pyxis_url)" \
+          --path "$(params.result_file)" \
+          --type preflight-results \
+          --output preflight-results.json \
+          --verbose
+
+        RESULTS_ID=$(cat preflight-results.json| jq -r "._id")
+        RESULT_URL="$(params.pyxis_url)v1/projects/certification/test-results/id/$RESULTS_ID"
+
+        echo -n $RESULTS_ID | tee $(results.test_result_id.path)
+
+        echo "Test result URL: "
+        echo -n $RESULT_URL | tee $(results.result_url.path)
+
+        RESULT_SPA_URL="$(params.connect_url)/projects/$(params.cert_project_id)/test-results"
+
+        echo "Test result SPA URL: "
+        echo -n $RESULT_SPA_URL | tee $(results.result_spa_url.path)
+
+    - name: upload-test-artifacts
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: PYXIS_CERT_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_cert_secret_key)
+        - name: PYXIS_KEY_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_key_secret_key)
+        - name: PYXIS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: $(params.pyxis_api_key_secret_name)
+              key: $(params.pyxis_api_key_secret_key)
+              optional: true
+      volumeMounts:
+        - name: pyxis-ssl-volume
+          readOnly: true
+          mountPath: "/etc/pyxis-ssl-volume"
+      script: |
+        #! /usr/bin/env bash
+        PREFLIGHT_RESULTS_EXISTS="$(params.preflight_results_exists)"
+        if [ $PREFLIGHT_RESULTS_EXISTS == "true" ]; then
+          exit 0
+        fi
+
+        echo "Uploading test artifacts"
+
+        upload-artifacts \
+          --cert-project-id "$(params.cert_project_id)" \
+          --operator-version "$(params.bundle_version)" \
+          --operator-package-name "$(params.package_name)" \
+          --certification-hash "$(params.md5sum)" \
+          --pyxis-url "$(params.pyxis_url)" \
+          --path "$(params.artifacts_dir)" \
+          --type preflight-artifacts \
+          --output preflight-artifacts.json \
+          --verbose

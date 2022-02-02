@@ -1,0 +1,29 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: dockerfile-creation
+spec:
+  params:
+    - name: pipeline_image
+    - name: bundle_path
+  results:
+    - name: bundle_dockerfile_path
+  workspaces:
+    - name: source
+  steps:
+    - name: generate-dockerfile
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      script: |
+        #! /usr/bin/env bash
+        DOCKERFILE_PATH=Dockerfile
+
+        bundle-dockerfile \
+          --bundle-path $(params.bundle_path) \
+          --destination $DOCKERFILE_PATH \
+          --verbose
+
+        cat $DOCKERFILE_PATH
+
+        echo $DOCKERFILE_PATH | tee $(results.bundle_dockerfile_path.path)

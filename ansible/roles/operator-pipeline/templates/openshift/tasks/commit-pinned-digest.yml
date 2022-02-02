@@ -1,0 +1,107 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: commit-pinned-digest
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.21.0"
+    tekton.dev/categories: Git
+    tekton.dev/tags: git
+    tekton.dev/displayName: "commit-pinned-digest"
+
+spec:
+  workspaces:
+    - name: source
+    - name: ssh-directory
+      optional: true
+      description: |
+        A .ssh directory with private key, known_hosts, config, etc. Copied to
+        the user's home before git commands are executed. Used to authenticate
+        with the git remote when performing the task to commit changes.
+        Binding a Secret to this Workspace is strongly recommended over other
+        volume types.
+  params:
+    - name: dirty_flag
+    - name: git_branch
+    - name: verbose
+      description: Log the commands that are executed during `commit-pinned-digest`'s operation.
+      type: string
+      default: "true"
+    - name: git_user_name
+      type: string
+      description: |
+        Git user name for performing git operation.
+      default: "digestPinning"
+    - name: git_user_email
+      type: string
+      description: |
+        Git user email for performing git operation.
+      default: "no-reply@redhat.com"
+    - name: userHome
+      description: |
+        Absolute path to the user's home directory. Set this explicitly if you are running the image as a non-root user or have overridden
+        the gitInitImage param with an image containing custom user configuration.
+      type: string
+      default: "/tekton/home"
+  results:
+    - name: commit
+      description: The precise commit SHA that was fetched by this Task.
+    - name: branch
+  steps:
+    - name: commit-changes
+      image: registry.redhat.io/openshift-pipelines/pipelines-git-init-rhel8@sha256:bc551c776fb3d0fcc6cfd6d8dc9f0030de012cb9516fac42b1da75e6771001d9
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: CURRENT_BRANCH
+          value: "$(params.git_branch)"
+        - name: HOME
+          value: "$(params.userHome)"
+        - name: PARAM_VERBOSE
+          value: $(params.verbose)
+        - name: WORKSPACE_SSH_DIRECTORY_BOUND
+          value: $(workspaces.ssh-directory.bound)
+        - name: WORKSPACE_SSH_DIRECTORY_PATH
+          value: $(workspaces.ssh-directory.path)
+      script: |
+        #! /usr/bin/env bash
+        set -eu
+
+        if [ "${PARAM_VERBOSE}" = "true" ] ; then
+          set -x
+        fi
+
+        if [ "${WORKSPACE_SSH_DIRECTORY_BOUND}" = "true" ] ; then
+          cp -R "${WORKSPACE_SSH_DIRECTORY_PATH}" $HOME/.ssh
+          chmod 700 $HOME/.ssh
+          chmod -R 400 $HOME/.ssh/*
+          eval $(ssh-agent)
+          ssh-add $HOME/.ssh/id_rsa
+        fi
+
+        # Setting up the config for the git.
+        git config --global user.email "$(params.git_user_email)"
+        git config --global user.name "$(params.git_user_name)"
+
+        DIRTY_FLAG="$(params.dirty_flag)"
+        echo $DIRTY_FLAG
+        if [ $DIRTY_FLAG == "true" ]; then
+          echo "Commit changes to temporary branch"
+
+          TEMP_BRANCH="${CURRENT_BRANCH}-pinned"
+          git checkout -b "${TEMP_BRANCH}"
+          git add -u
+          git commit -m "Pin the operator manifests"
+          git push origin "${TEMP_BRANCH}" -f
+
+          echo -n "$TEMP_BRANCH" > $(results.branch.path)
+
+        else
+          echo "Skipping commit"
+          echo -n "" > $(results.branch.path)
+        fi
+
+        RESULT_SHA="$(git rev-parse HEAD | tr -d '\n')"
+        # Make sure we don't add a trailing newline to the result!
+        echo -n "$RESULT_SHA" > $(results.commit.path)

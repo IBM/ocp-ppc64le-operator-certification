@@ -1,0 +1,108 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: digest-pinning
+spec:
+  params:
+    - name: bundle_path
+    - name: enabled
+      default: "true"
+    - name: pipeline_image
+  results:
+    - name: dirty_flag
+    - name: related_images_flag
+  workspaces:
+    - name: source
+    - name: registry-credentials
+      optional: true
+  steps:
+    - name: combine-credentials
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+
+        if [[ "$(workspaces.registry-credentials.bound)" == "true" ]]; then
+          # Setup registry credentials for pinning tools. Combine the default credentials
+          # with those found in the workspace to maintain access to the internal
+          # registry.
+          export DOCKER_CONFIG=.docker
+          export REGISTRY_AUTH_FILE="$DOCKER_CONFIG/config-custom.json"
+          mkdir -p $DOCKER_CONFIG
+
+          jq -s '.[0] * .[1]' \
+            $(workspaces.registry-credentials.path)/.dockerconfigjson \
+            $HOME/.docker/config.json \
+            > "$REGISTRY_AUTH_FILE"
+        fi
+    - name: pin-digest
+      image: quay.io/redhat-isv/digest-pinning-tool@sha256:cf5cfae4bd5101295345e0d1dc8f4b99c965d458d9bf34613882682106299dfa
+      workingDir: $(workspaces.source.path)
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+
+        if [ "$(params.enabled)" != "true" ]; then
+          echo "Digest pinning is not enabled"
+          exit 0
+        fi
+
+        if [[ "$(workspaces.registry-credentials.bound)" == "true" ]]; then
+          export DOCKER_CONFIG=.docker
+          export REGISTRY_AUTH_FILE="$DOCKER_CONFIG/config-custom.json"
+        fi
+
+        BUNDLE_PATH=$(realpath $(params.bundle_path))
+        ls -l $BUNDLE_PATH
+        operator-manifest pin $BUNDLE_PATH
+    - name: verify-pinning
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+
+        if [ "$(params.enabled)" != "true" ]; then
+          echo "Digest pinning is not enabled"
+          echo -n "false" | tee $(results.dirty_flag.path)
+          exit 0
+        fi
+
+        cat replacements.json
+        REPLACEMENT_COUNT=$(jq length replacements.json)
+
+        if [[ $REPLACEMENT_COUNT -gt 0 ]]; then
+          echo "Manifests were not pinned."
+          echo -n "true" | tee $(results.dirty_flag.path)
+        else
+          echo "Manifests are pinned."
+          echo -n "false" | tee $(results.dirty_flag.path)
+        fi
+    - name: verify-related-images
+      image: "$(params.pipeline_image)"
+      workingDir: $(workspaces.source.path)
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+
+        if [ "$(params.enabled)" != "true" ]; then
+          echo "Digest pinning is not enabled"
+          echo -n "true" | tee $(results.related_images_flag.path)
+          exit 0
+        fi
+
+        BUNDLE_PATH=$(realpath $(params.bundle_path))
+        cat references.json
+        REFERENCE_COUNT=$(jq length references.json)
+        CSVFILE=$(find $BUNDLE_PATH -name "*clusterserviceversion.yaml" -o -name "*clusterserviceversion.yml")
+        RELATED_IMAGE_COUNT=$(yq -e '.spec.relatedImages | length' $CSVFILE)
+
+        if [[ $RELATED_IMAGE_COUNT -ge $REFERENCE_COUNT ]]; then
+          echo "Related images section exists."
+          echo -n "true" | tee $(results.related_images_flag.path)
+        else
+          echo "The relatedImages section does not exist or is missing images."
+          echo -n "false" | tee $(results.related_images_flag.path)
+        fi
