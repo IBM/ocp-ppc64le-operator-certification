@@ -152,8 +152,8 @@ oc import-image redhat-marketplace-index \
 
 ### <a id="step6"></a>Step 6 - Install the Certification Pipeline and dependencies into the cluster
 ```bash
-git clone https://github.com/redhat-openshift-ecosystem/operator-pipelines
-cd operator-pipelines
+git clone https://github.com/IBM/ocp-ppc64le-operator-certification.git
+cd ocp-ppc64le-operator-certification
 oc apply -R -f ansible/roles/operator-pipeline/templates/openshift/pipelines
 oc apply -R -f ansible/roles/operator-pipeline/templates/openshift/tasks
 ```
