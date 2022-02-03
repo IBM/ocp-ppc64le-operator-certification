@@ -28,7 +28,7 @@ ARG OPENSHIFT_CLIENT_VERSION=4.7.19
 ARG OPERATOR_SDK_VERSION=1.14.0
 
 # Add preflight binary
-COPY --from=builder /go/src/preflight/preflight /usr/local/bin/preflight /usr/local/bin/preflight
+COPY --from=builder /go/src/preflight/preflight /usr/local/bin/preflight
 
 # Install dependencies
 RUN dnf install -y \
